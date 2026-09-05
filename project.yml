@@ -1,6 +1,6 @@
 name: TideLife
 options:
-  bundleIdPrefix: com.tidefall
+  bundleIdPrefix: com.jake
   deploymentTarget:
     iOS: "17.0"
 settings:
@@ -18,7 +18,7 @@ targets:
       - TideLife
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tidefall.tidelife
+        PRODUCT_BUNDLE_IDENTIFIER: com.jake.tidelife
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: TideLife
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
