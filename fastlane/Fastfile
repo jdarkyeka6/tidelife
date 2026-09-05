@@ -1,111 +1,40 @@
 APP_IDENTIFIER = "com.jake.tidelife"
-APP_NAME = "TideLife"
 
 default_platform(:ios)
 
 platform :ios do
-  desc "Build TideLife and upload it to TestFlight"
-  lane :beta do
-    key_id    = ENV["APP_STORE_CONNECT_API_KEY_ID"].to_s.strip
-    issuer_id = ENV["APP_STORE_CONNECT_ISSUER_ID"].to_s.strip
-    team_id   = ENV["APPLE_TEAM_ID"].to_s.strip
-    raw_key   = ENV["APP_STORE_CONNECT_API_KEY"].to_s.strip
+  desc "Create or download TideLife's App Store provisioning profile"
+  lane :prepare_profile do
+    key_id = ENV["ASC_KEY_ID"].to_s.strip
+    issuer_id = ENV["ASC_ISSUER_ID"].to_s.strip
+    team_id = ENV["APPLE_TEAM_ID"].to_s.strip
+    key_path = ENV["ASC_KEY_PATH"].to_s.strip
 
     missing = []
-    missing << "APP_STORE_CONNECT_API_KEY_ID" if key_id.empty?
-    missing << "APP_STORE_CONNECT_ISSUER_ID" if issuer_id.empty?
-    missing << "APP_STORE_CONNECT_API_KEY" if raw_key.empty?
+    missing << "ASC_KEY_ID" if key_id.empty?
+    missing << "ASC_ISSUER_ID" if issuer_id.empty?
     missing << "APPLE_TEAM_ID" if team_id.empty?
-    UI.user_error!("Missing Apple CI secret(s): #{missing.join(', ')}") unless missing.empty?
-
-    key_text = if raw_key.include?("BEGIN PRIVATE KEY")
-      raw_key
-    else
-      require "base64"
-      Base64.decode64(raw_key)
-    end
-
-    UI.user_error!("APP_STORE_CONNECT_API_KEY is not a valid .p8 private key") unless key_text.include?("BEGIN PRIVATE KEY")
-
-    key_path = File.expand_path("~/tidelife_asc_api_key.p8")
-    File.write(key_path, key_text)
+    missing << "ASC_KEY_PATH" if key_path.empty?
+    UI.user_error!("Missing Apple CI value(s): #{missing.join(', ')}") unless missing.empty?
 
     api_key = app_store_connect_api_key(
       key_id: key_id,
       issuer_id: issuer_id,
-      key_filepath: key_path
-    )
-
-    require "spaceship"
-    app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
-    unless app
-      UI.user_error!(
-        "APP_STORE_RECORD_MISSING: Create the iOS app '#{APP_NAME}' in App Store Connect using bundle ID '#{APP_IDENTIFIER}', then re-run this workflow."
-      )
-    end
-
-    keychain_name = "tidelife-ci.keychain"
-    keychain_pw = "tidelife-ci-temp"
-    create_keychain(
-      name: keychain_name,
-      password: keychain_pw,
-      default_keychain: true,
-      unlock: true,
-      timeout: 3600,
-      lock_when_sleeps: false
-    )
-
-    cert(
-      api_key: api_key,
-      generate_apple_certs: true,
-      keychain_path: File.expand_path("~/Library/Keychains/#{keychain_name}-db"),
-      keychain_password: keychain_pw
+      key_filepath: key_path,
+      in_house: false
     )
 
     sigh(
       api_key: api_key,
       app_identifier: APP_IDENTIFIER,
-      force: true
-    )
-
-    profile_name = lane_context[SharedValues::SIGH_NAME]
-
-    update_code_signing_settings(
-      path: "TideLife.xcodeproj",
-      use_automatic_signing: false,
       team_id: team_id,
-      code_sign_identity: "Apple Distribution",
-      profile_name: profile_name,
-      targets: ["TideLife"]
+      provisioning_name: "TideLife App Store",
+      skip_certificate_verification: true,
+      force: false,
+      output_path: ENV.fetch("RUNNER_TEMP", "."),
+      filename: "TideLife_AppStore.mobileprovision"
     )
 
-    latest = latest_testflight_build_number(
-      api_key: api_key,
-      app_identifier: APP_IDENTIFIER,
-      initial_build_number: 0
-    )
-
-    increment_build_number(
-      xcodeproj: "TideLife.xcodeproj",
-      build_number: latest + 1
-    )
-
-    build_app(
-      project: "TideLife.xcodeproj",
-      scheme: "TideLife",
-      export_method: "app-store",
-      export_options: {
-        signingStyle: "manual",
-        teamID: team_id,
-        provisioningProfiles: {
-          APP_IDENTIFIER => profile_name
-        }
-      }
-    )
-
-    upload_to_testflight(
-      api_key: api_key,
-      skip_waiting_for_build_processing: true
-    )
+    UI.success("TideLife App Store provisioning profile is installed on the runner")
   end
 end
