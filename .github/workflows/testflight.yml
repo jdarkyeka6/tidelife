@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - .github/workflows/testflight.yml
+      - fastlane/**
+      - Gemfile
       - project.yml
       - TideLife/**
 
@@ -90,6 +92,16 @@ jobs:
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           cp "$KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Create or download TideLife App Store profile
+        shell: bash
+        run: bundle exec fastlane ios prepare_profile
+
       - name: Verify Xcode 26 SDK and project
         shell: bash
         run: |
@@ -103,7 +115,7 @@ jobs:
           esac
           xcodebuild -project TideLife.xcodeproj -scheme TideLife -showBuildSettings | head -n 80
 
-      - name: Archive TideLife with automatic provisioning
+      - name: Archive TideLife without development signing
         shell: bash
         run: |
           set -euo pipefail
@@ -117,11 +129,8 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
-            CODE_SIGN_STYLE=Automatic \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             archive 2>&1 | tee "$PWD/build/xcode-archive.log"
 
       - name: Create export options
