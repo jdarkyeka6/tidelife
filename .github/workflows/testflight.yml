@@ -6,8 +6,6 @@ on:
     branches: [main]
     paths:
       - .github/workflows/testflight.yml
-      - fastlane/**
-      - Gemfile
       - project.yml
       - TideLife/**
 
@@ -21,18 +19,36 @@ concurrency:
 jobs:
   build-and-upload:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
+    env:
+      BUNDLE_ID: com.jake.tidelife
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Select Xcode
+      - name: Verify Apple secrets
+        shell: bash
+        env:
+          ASC_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          CERT_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
         run: |
-          if [ -d /Applications/Xcode_26.3.app ]; then
-            sudo xcode-select -s /Applications/Xcode_26.3.app
-          fi
-          xcodebuild -version
+          set -euo pipefail
+          missing=0
+          [ -n "${APPLE_TEAM_ID:-}" ] || { echo "::error::Missing APPLE_TEAM_ID"; missing=1; }
+          [ -n "${ASC_KEY_ID:-}" ] || { echo "::error::Missing APP_STORE_CONNECT_API_KEY_ID"; missing=1; }
+          [ -n "${ASC_ISSUER_ID:-}" ] || { echo "::error::Missing APP_STORE_CONNECT_ISSUER_ID"; missing=1; }
+          [ -n "${ASC_API_KEY:-}" ] || { echo "::error::Missing APP_STORE_CONNECT_API_KEY"; missing=1; }
+          [ -n "${CERT_P12:-}" ] || { echo "::error::Missing APPLE_CERTIFICATE_P12"; missing=1; }
+          [ -n "${CERT_PASSWORD:-}" ] || { echo "::error::Missing APPLE_CERTIFICATE_PASSWORD"; missing=1; }
+          [ -n "${PROVISIONING_PROFILE:-}" ] || { echo "::error::Missing APPLE_PROVISIONING_PROFILE"; missing=1; }
+          [ "$missing" -eq 0 ] || exit 1
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -40,16 +56,168 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Set up Ruby and Fastlane
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
-          bundler-cache: true
-
-      - name: Build, sign and upload TideLife
+      - name: Prepare App Store Connect key and signing files
+        shell: bash
         env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bundle exec fastlane beta
+          ASC_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          CERT_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, os, pathlib, sys
+
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+
+          raw_key = os.environ["ASC_API_KEY"].strip()
+          if "BEGIN PRIVATE KEY" in raw_key:
+              key_bytes = raw_key.encode()
+          else:
+              try:
+                  key_bytes = base64.b64decode(raw_key, validate=True)
+              except Exception as exc:
+                  sys.exit(f"APP_STORE_CONNECT_API_KEY is neither a .p8 key nor valid base64: {exc}")
+          if b"BEGIN PRIVATE KEY" not in key_bytes:
+              sys.exit("APP_STORE_CONNECT_API_KEY did not decode to a valid .p8 private key")
+          (temp / "AuthKey.p8").write_bytes(key_bytes)
+
+          for env_name, filename in [
+              ("CERT_P12", "distribution.p12"),
+              ("PROVISIONING_PROFILE", "TideLife.mobileprovision"),
+          ]:
+              raw = "".join(os.environ[env_name].split())
+              try:
+                  decoded = base64.b64decode(raw, validate=True)
+              except Exception as exc:
+                  sys.exit(f"{env_name} must be base64-encoded: {exc}")
+              if not decoded:
+                  sys.exit(f"{env_name} decoded to an empty file")
+              (temp / filename).write_bytes(decoded)
+          PY
+
+          KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          cp "$KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Import distribution certificate and provisioning profile
+        shell: bash
+        env:
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/tidelife-signing.keychain-db"
+          KEYCHAIN_PASSWORD="tidelife-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          CERT_PATH="$RUNNER_TEMP/distribution.p12"
+          PROFILE_SOURCE="$RUNNER_TEMP/TideLife.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/TideLife-profile.plist"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -A -f pkcs12
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          security cms -D -i "$PROFILE_SOURCE" > "$PROFILE_PLIST"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST")
+          PROFILE_TEAM=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$PROFILE_PLIST")
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$PROFILE_PLIST")
+
+          if [ "$PROFILE_TEAM" != "$APPLE_TEAM_ID" ]; then
+            echo "::error::Provisioning profile belongs to team $PROFILE_TEAM, but APPLE_TEAM_ID is $APPLE_TEAM_ID"
+            exit 1
+          fi
+
+          case "$PROFILE_APP_ID" in
+            *.$BUNDLE_ID) ;;
+            *) echo "::error::Provisioning profile is for $PROFILE_APP_ID, not $BUNDLE_ID"; exit 1 ;;
+          esac
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_SOURCE" "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
+
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Archive TideLife
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild \
+            -project TideLife.xcodeproj \
+            -scheme TideLife \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/TideLife.xcarchive" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            archive 2>&1 | tee "$PWD/build/xcode-archive.log"
+
+      - name: Export signed IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$PWD/build/TideLife.xcarchive" \
+            -exportPath "$PWD/build/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+          IPA_PATH=$(find "$PWD/build/export" -maxdepth 1 -name '*.ipa' -print -quit)
+          [ -n "$IPA_PATH" ] || { echo "::error::No IPA was produced"; exit 1; }
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload to App Store Connect / TestFlight
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun altool \
+            --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tidelife-build-${{ github.run_number }}
+          path: |
+            build/xcode-archive.log
+            build/export/*.ipa
+          if-no-files-found: warn
