@@ -1,0 +1,16 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# XcodeGen
+TideLife.xcodeproj/
+
+# macOS
+.DS_Store
+
+# Secrets
+.env
+*.p8
