@@ -103,7 +103,7 @@ jobs:
           esac
           xcodebuild -project TideLife.xcodeproj -scheme TideLife -showBuildSettings | head -n 80
 
-      - name: Archive TideLife without development signing
+      - name: Archive TideLife with automatic provisioning
         shell: bash
         run: |
           set -euo pipefail
@@ -117,8 +117,11 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_STYLE=Automatic \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             archive 2>&1 | tee "$PWD/build/xcode-archive.log"
 
       - name: Create export options
