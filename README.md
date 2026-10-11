@@ -17,25 +17,21 @@ The app uses a native `WKWebView` wrapper around the entire bundled game. Browse
 2. Run `xcodegen generate`.
 3. Open `TideLife.xcodeproj`, select scheme `TideLife`, and run.
 
-## TestFlight signing status (11 October 2026)
+## Automatic signing for TestFlight (11 October 2026)
 
-The complete Everafter game, correct display name and icon successfully pass the iOS build and archive. **TestFlight upload is not yet complete** because the developer account has reached its Apple Distribution certificate limit and GitHub doesn't have a matching signing private key.
+The game and custom icon build successfully. **Everafter is not on TestFlight yet.** The app's home-screen display name is `Everafter`, while the existing App Store Connect record and bundle identifier remain TideLife / `com.jake.tidelife`.
 
-The already-stored App Store Connect API key works for profile access; you do **not** need to redownload that key. Do not revoke certificates without checking their use in other apps.
+The XcodeGen project sets `CODE_SIGN_STYLE: Automatic`. The "Upload Everafter to TideLife TestFlight" workflow uses the stored App Store Connect API key and passes `-allowProvisioningUpdates` and authentication-key arguments to `xcodebuild`. The export option also specifies automatic signing. No `.p12` certificate or password is required by the workflow.
 
-When an existing Apple Distribution signing identity is available, add these GitHub Actions secrets:
+The latest automatic-signing attempt **failed before archive/export**:
 
-- `APPLE_DISTRIBUTION_P12_BASE64`: base64 encoding of the original `.p12` signing identity exported **with its private key**
-- `APPLE_DISTRIBUTION_P12_PASSWORD`: password protecting that `.p12`
-
-Then go to Actions > "Upload Everafter to TideLife TestFlight" > Run workflow. This workflow never attempts to create or revoke Apple Distribution certificates. The iOS build remains automatic on source pushes.
-
-To base64 encode a `.p12` on Windows (PowerShell):
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\\path\\to\\distribution.p12"))
+```
+No Account for Team (configured Apple team)
+No profiles for 'com.jake.tidelife' were found
 ```
 
-Keep the `.p12`, its password and the `.p8` API key in GitHub Actions Secrets or another secure vault, never in the public repository. If the original certificate's private key is not available, coordinate signing with the certificate owner or resolve Apple cloud-managed signing through the team's Apple Developer account.
+This is an Apple/Xcode account or signing access problem on the GitHub macOS runner, not a game compilation error. Xcode must be able to associate the API key with a team permitted to manage provisioning and cloud distribution signing. Check the `APPLE_TEAM_ID`, API key issuer/team association and permissions in Apple Developer/App Store Connect before retrying. The account has also previously reached its local Apple Distribution certificate limit, so do not create or revoke certificates without checking dependencies.
 
-**Do not change `com.jake.tidelife` when renaming the App Store Connect listing.** The iPhone app displays `Everafter` already.
+Apple's Xcode cloud-signing guidance documents the supported `xcodebuild` App Store Connect API key approach: https://developer.apple.com/videos/play/wwdc2021/10204/
+
+See GitHub Actions to inspect the failing automatic signing run. No live TestFlight build was uploaded.
