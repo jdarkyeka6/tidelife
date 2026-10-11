@@ -1,53 +1,26 @@
-# TideLife 🌊
+# Everafter (TideLife TestFlight record)
 
-**Live anything. Build a legacy.**
+This repository builds **Everafter**, an offline, unlocked, original life simulator for iPhone and iPad.
 
-TideLife is a native iPhone life simulation game built to go much deeper than simple scripted life-event games. The goal is a persistent simulation where choices, relationships, careers, money, health, education and reputation interact across an entire lifetime.
+- **Home screen/display name:** Everafter
+- **App Store Connect/TestFlight record:** TideLife (rename in App Store Connect later)
+- **Existing bundle identifier:** `com.jake.tidelife` (do not change this to rename the app)
+- **Game:** `TideLife/Game/index.html`
+- **Minimum iOS:** 17.0
+- **No logins, subscriptions, paywalls or network needed to play**
 
-## v0.1 playable loop
+The app uses a native `WKWebView` wrapper around the entire bundled game. Browser-style local saves are kept in WebKit's persistent data store. Game JSON export downloads go to the app Documents folder and are visible in Files if supported by the iOS WebKit download API.
 
-- Generate a unique character, birthplace and parents
-- Age from birth through childhood, school, adulthood and old age
-- Persistent stats: health, happiness, smarts, looks, stress and reputation
-- Relationships with closeness values
-- School and education progression
-- Jobs, salary, annual expenses and net worth
-- Manual actions including study, exercise, socialising, relaxing and work
-- Random events and age-based milestones
-- Decisions with multiple outcomes and lasting stat / money effects
-- Full reverse-chronological life timeline
-- Death and final life summary
-- Automatic local save / resume
+## Running locally
 
-## Tech
+1. Install XcodeGen: `brew install xcodegen`.
+2. Run `xcodegen generate`.
+3. Open `TideLife.xcodeproj`, select scheme `TideLife`, and run.
 
-- Swift
-- SwiftUI
-- iOS 17+
-- XcodeGen for reproducible project generation
-- GitHub Actions macOS build validation
+## TestFlight
 
-## Run locally
+The GitHub Actions workflow `Everafter to TestFlight (TideLife app)` builds on pushes to main. It uses the **existing** `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and `APPLE_TEAM_ID` repository secrets. It requests Apple's automatic/cloud-managed distribution signing to avoid the old manually named profile issue.
 
-1. Install XcodeGen: `brew install xcodegen`
-2. In the repo root run: `xcodegen generate`
-3. Open `TideLife.xcodeproj`
-4. Run the `TideLife` scheme on an iPhone simulator or device
+If automatic cloud distribution signing isn't permitted for the App Store Connect account, fix the account's cloud-managed distribution certificate permissions or install an Apple Distribution certificate for local export. **Never commit .p8 or .p12 files to the repo.**
 
-## Direction
-
-Future systems are designed to become much deeper rather than simply adding more buttons:
-
-- Generations and inheritance
-- Businesses with staff, ownership, products and competition
-- Property, debt, investing and an economy
-- Deeper relationships, marriage, children and family trees
-- Crime, courts and prison
-- Politics and elections
-- Fame, music, sport and entertainment careers
-- Dynamic world characters that continue living after you stop interacting with them
-- Legacy systems where companies, families and decisions survive the original character
-
-## Monetisation principle
-
-The base game should be a complete game. Major optional expansions can be inexpensive one-time purchases rather than putting ordinary life choices behind large subscriptions.
+After a successful upload, Apple may take time to process the build before it appears in TestFlight. Changing the TestFlight/App Store Connect listing name later does not require changing the bundle identifier or the game's display name.

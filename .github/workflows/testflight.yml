@@ -1,4 +1,4 @@
-name: TideLife to TestFlight
+name: Everafter to TestFlight (TideLife app)
 
 on:
   workflow_dispatch: {}
@@ -6,8 +6,6 @@ on:
     branches: [main]
     paths:
       - .github/workflows/testflight.yml
-      - fastlane/**
-      - Gemfile
       - project.yml
       - TideLife/**
 
@@ -20,7 +18,7 @@ concurrency:
 
 jobs:
   build-and-upload:
-    name: Build and upload iOS
+    name: Archive and upload Everafter
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -32,108 +30,80 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      - name: Normalize and check Apple secrets
+      - name: Validate existing Apple credentials
         shell: bash
         env:
           ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: |
           set -euo pipefail
+          for value in "$APPLE_TEAM_ID" "$ASC_KEY_ID" "$ASC_ISSUER_ID" "$ASC_API_KEY_P8"; do
+            if [ -z "$value" ]; then
+              echo "::error::An Apple signing/API key secret is missing"
+              exit 1
+            fi
+          done
+          echo "APPLE_TEAM_ID=$(printf %s "$APPLE_TEAM_ID" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "ASC_KEY_ID=$(printf %s "$ASC_KEY_ID" | tr -d '[:space:]')" >> "$GITHUB_ENV"
+          echo "ASC_ISSUER_ID=$(printf %s "$ASC_ISSUER_ID" | tr -d '[:space:]')" >> "$GITHUB_ENV"
 
-          CLEAN_TEAM_ID=$(printf '%s' "$APPLE_TEAM_ID" | tr -d '[:space:]')
-          CLEAN_KEY_ID=$(printf '%s' "$ASC_KEY_ID" | tr -d '[:space:]')
-          CLEAN_ISSUER_ID=$(printf '%s' "$ASC_ISSUER_ID" | tr -d '[:space:]')
-
-          missing=0
-          [ -n "$CLEAN_TEAM_ID" ] || { echo "::error::Missing APPLE_TEAM_ID"; missing=1; }
-          [ -n "$CLEAN_KEY_ID" ] || { echo "::error::Missing APP_STORE_CONNECT_API_KEY_ID"; missing=1; }
-          [ -n "$CLEAN_ISSUER_ID" ] || { echo "::error::Missing APP_STORE_CONNECT_ISSUER_ID"; missing=1; }
-          [ -n "$ASC_API_KEY_P8" ] || { echo "::error::Missing APP_STORE_CONNECT_API_KEY"; missing=1; }
-          [ "$missing" -eq 0 ] || exit 1
-
-          echo "APPLE_TEAM_ID=$CLEAN_TEAM_ID" >> "$GITHUB_ENV"
-          echo "ASC_KEY_ID=$CLEAN_KEY_ID" >> "$GITHUB_ENV"
-          echo "ASC_ISSUER_ID=$CLEAN_ISSUER_ID" >> "$GITHUB_ENV"
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Prepare App Store Connect API key
+      - name: Prepare existing App Store Connect key
         shell: bash
         env:
           ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
         run: |
           set -euo pipefail
           KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
-
-          if printf '%s' "$ASC_API_KEY_P8" | grep -q 'BEGIN PRIVATE KEY'; then
-            printf '%s' "$ASC_API_KEY_P8" > "$KEY_PATH"
+          if printf %s "$ASC_API_KEY_P8" | grep -q 'BEGIN PRIVATE KEY'; then
+            printf %s "$ASC_API_KEY_P8" > "$KEY_PATH"
           else
             ASC_API_KEY_P8="$ASC_API_KEY_P8" KEY_PATH="$KEY_PATH" python3 - <<'PY'
-          import base64, os, pathlib, sys
-          raw = ''.join(os.environ['ASC_API_KEY_P8'].split())
-          try:
-              decoded = base64.b64decode(raw, validate=True)
-          except Exception as exc:
-              sys.exit(f'APP_STORE_CONNECT_API_KEY is neither a raw .p8 key nor valid base64: {exc}')
-          if b'BEGIN PRIVATE KEY' not in decoded:
-              sys.exit('APP_STORE_CONNECT_API_KEY did not decode to a valid .p8 private key')
-          pathlib.Path(os.environ['KEY_PATH']).write_bytes(decoded)
+          import os, base64, pathlib, sys
+          data = base64.b64decode(''.join(os.environ['ASC_API_KEY_P8'].split()), validate=True)
+          if b'BEGIN PRIVATE KEY' not in data:
+              sys.exit('The existing App Store Connect key is invalid')
+          pathlib.Path(os.environ['KEY_PATH']).write_bytes(data)
           PY
           fi
-
           chmod 600 "$KEY_PATH"
           echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           cp "$KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
-      - name: Set up Ruby and Fastlane
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
-          bundler-cache: true
-
-      - name: Create or download TideLife App Store profile
-        shell: bash
-        run: bundle exec fastlane ios prepare_profile
-
-      - name: Verify Xcode 26 SDK and project
+      - name: Generate iOS project
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -version
-          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
-          echo "iOS SDK: $SDK_VERSION"
-          case "$SDK_VERSION" in
-            26.*) ;;
-            *) echo "::error::Expected iOS 26 SDK, got $SDK_VERSION"; exit 1 ;;
-          esac
-          xcodebuild -project TideLife.xcodeproj -scheme TideLife -showBuildSettings | head -n 80
+          brew install xcodegen
+          xcodegen generate
 
-      - name: Archive TideLife without development signing
+      - name: Confirm Everafter content is bundled
+        shell: bash
+        run: |
+          test -s TideLife/Game/index.html
+          grep -qi 'EVERAFTER' TideLife/Game/index.html
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Archive without local development certificate
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build
-          xcodebuild \
-            -project TideLife.xcodeproj \
-            -scheme TideLife \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$PWD/build/TideLife.xcarchive" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            archive 2>&1 | tee "$PWD/build/xcode-archive.log"
+          xcodebuild             -project TideLife.xcodeproj             -scheme TideLife             -configuration Release             -destination 'generic/platform=iOS'             -archivePath "$PWD/build/TideLife.xcarchive"             DEVELOPMENT_TEAM="$APPLE_TEAM_ID"             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             archive 2>&1 | tee build/xcode-archive.log
 
-      - name: Create export options
+      - name: Confirm archived game resource and display name
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$PWD/build/TideLife.xcarchive/Products/Applications/TideLife.app"
+          test -d "$APP_PATH"
+          test -s "$APP_PATH/Game/index.html" || test -s "$APP_PATH/index.html"
+          DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$APP_PATH/Info.plist")
+          [ "$DISPLAY_NAME" = "Everafter" ]
+
+      - name: Configure Apple cloud-managed automatic distribution signing
         shell: bash
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
@@ -141,64 +111,37 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key>
-            <string>app-store-connect</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>${APPLE_TEAM_ID}</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key>
-              <string>TideLife App Store</string>
-            </dict>
-            <key>signingCertificate</key>
-            <string>Apple Distribution</string>
-            <key>uploadSymbols</key>
-            <true/>
+            <key>method</key><string>app-store-connect</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>destination</key><string>export</string>
+            <key>uploadSymbols</key><true/>
           </dict>
           </plist>
           PLIST
 
-      - name: Export and sign IPA for App Store Connect
+      - name: Export iOS IPA using existing API key
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild \
-            -exportArchive \
-            -archivePath "$PWD/build/TideLife.xcarchive" \
-            -exportPath "$PWD/build/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
-
+          xcodebuild             -exportArchive             -archivePath "$PWD/build/TideLife.xcarchive"             -exportPath "$PWD/build/export"             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"             -allowProvisioningUpdates             -authenticationKeyPath "$ASC_KEY_PATH"             -authenticationKeyID "$ASC_KEY_ID"             -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee build/export.log
           IPA_PATH=$(find "$PWD/build/export" -maxdepth 1 -name '*.ipa' -print -quit)
           [ -n "$IPA_PATH" ] || { echo "::error::No IPA was produced"; exit 1; }
           echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
 
-      - name: Upload to App Store Connect / TestFlight
+      - name: Upload Everafter to TideLife's TestFlight record
         shell: bash
         run: |
           set -euo pipefail
-          xcrun altool \
-            --upload-app \
-            --type ios \
-            --file "$IPA_PATH" \
-            --apiKey "$ASC_KEY_ID" \
-            --apiIssuer "$ASC_ISSUER_ID"
+          xcrun altool             --upload-app             --type ios             --file "$IPA_PATH"             --apiKey "$ASC_KEY_ID"             --apiIssuer "$ASC_ISSUER_ID"
 
-      - name: Upload build diagnostics
+      - name: Preserve diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tidelife-build-${{ github.run_number }}
+          name: everafter-tidelife-${{ github.run_number }}
           path: |
             build/xcode-archive.log
+            build/export.log
             build/export/*.ipa
           if-no-files-found: warn
-
-      - name: Done
-        if: success()
-        run: echo "TideLife was uploaded to App Store Connect. It will appear in TestFlight after Apple finishes processing it."
