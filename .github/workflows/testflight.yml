@@ -71,6 +71,9 @@ jobs:
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           cp "$KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
+      - name: Generate Everafter app icon
+        run: swift scripts/make_app_icon.swift TideLife/Assets.xcassets/AppIcon.appiconset/Icon-1024.png
+
       - name: Generate iOS project
         shell: bash
         run: |

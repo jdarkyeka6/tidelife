@@ -18,6 +18,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Generate Everafter app icon
+        run: swift scripts/make_app_icon.swift TideLife/Assets.xcassets/AppIcon.appiconset/Icon-1024.png
+
       - name: Generate Xcode project
         run: xcodegen generate
 
