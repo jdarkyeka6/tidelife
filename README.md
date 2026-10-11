@@ -17,10 +17,25 @@ The app uses a native `WKWebView` wrapper around the entire bundled game. Browse
 2. Run `xcodegen generate`.
 3. Open `TideLife.xcodeproj`, select scheme `TideLife`, and run.
 
-## TestFlight
+## TestFlight signing status (11 October 2026)
 
-The GitHub Actions workflow `Everafter to TestFlight (TideLife app)` builds on pushes to main. It uses the **existing** `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and `APPLE_TEAM_ID` repository secrets. It requests Apple's automatic/cloud-managed distribution signing to avoid the old manually named profile issue.
+The complete Everafter game, correct display name and icon successfully pass the iOS build and archive. **TestFlight upload is not yet complete** because the developer account has reached its Apple Distribution certificate limit and GitHub doesn't have a matching signing private key.
 
-If automatic cloud distribution signing isn't permitted for the App Store Connect account, fix the account's cloud-managed distribution certificate permissions or install an Apple Distribution certificate for local export. **Never commit .p8 or .p12 files to the repo.**
+The already-stored App Store Connect API key works for profile access; you do **not** need to redownload that key. Do not revoke certificates without checking their use in other apps.
 
-After a successful upload, Apple may take time to process the build before it appears in TestFlight. Changing the TestFlight/App Store Connect listing name later does not require changing the bundle identifier or the game's display name.
+When an existing Apple Distribution signing identity is available, add these GitHub Actions secrets:
+
+- `APPLE_DISTRIBUTION_P12_BASE64`: base64 encoding of the original `.p12` signing identity exported **with its private key**
+- `APPLE_DISTRIBUTION_P12_PASSWORD`: password protecting that `.p12`
+
+Then go to Actions > "Upload Everafter to TideLife TestFlight" > Run workflow. This workflow never attempts to create or revoke Apple Distribution certificates. The iOS build remains automatic on source pushes.
+
+To base64 encode a `.p12` on Windows (PowerShell):
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\\path\\to\\distribution.p12"))
+```
+
+Keep the `.p12`, its password and the `.p8` API key in GitHub Actions Secrets or another secure vault, never in the public repository. If the original certificate's private key is not available, coordinate signing with the certificate owner or resolve Apple cloud-managed signing through the team's Apple Developer account.
+
+**Do not change `com.jake.tidelife` when renaming the App Store Connect listing.** The iPhone app displays `Everafter` already.
