@@ -72,7 +72,10 @@ jobs:
           cp "$KEY_PATH" "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
       - name: Generate Everafter app icon
-        run: swift scripts/make_app_icon.swift TideLife/Assets.xcassets/AppIcon.appiconset/Icon-1024.png
+        run: |
+          swift scripts/make_app_icon.swift TideLife/Assets.xcassets/AppIcon.appiconset/Icon-1024.png
+          sips -s format jpeg TideLife/Assets.xcassets/AppIcon.appiconset/Icon-1024.png --out "$RUNNER_TEMP/everafter-icon.jpg" >/dev/null
+          sips -s format png "$RUNNER_TEMP/everafter-icon.jpg" --out TideLife/Assets.xcassets/AppIcon.appiconset/Icon-1024.png >/dev/null
 
       - name: Generate iOS project
         shell: bash

@@ -1,12 +1,12 @@
 import AppKit
 import CoreGraphics
 
-// Deterministic, opaque 1024x1024 Everafter App Store icon, generated on macOS CI.
+// Deterministic, opaque 1024x1024 Everafter app icon, generated on macOS CI.
 let side = 1024
 guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
                                    pixelsWide: side, pixelsHigh: side,
-                                   bitsPerSample: 8, samplesPerPixel: 3,
-                                   hasAlpha: false, isPlanar: false,
+                                   bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false,
                                    colorSpaceName: .deviceRGB, bytesPerRow: 0,
                                    bitsPerPixel: 0),
       let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else {
