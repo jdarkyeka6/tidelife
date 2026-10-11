@@ -109,7 +109,26 @@ jobs:
           DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$APP_PATH/Info.plist")
           [ "$DISPLAY_NAME" = "Everafter" ]
 
-      - name: Configure Apple cloud-managed automatic distribution signing
+      - name: Set up Fastlane for one-time signing bootstrap
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Create distribution certificate and matching profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle exec fastlane ios bootstrap_signing
+          security find-identity -v -p codesigning | grep -q 'Apple Distribution' || {
+            echo "::error::No local Apple Distribution identity was installed"
+            exit 1
+          }
+          PROFILE_UUID=$(cat "$RUNNER_TEMP/tidelife-profile-uuid.txt")
+          [ -n "$PROFILE_UUID" ] || exit 1
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Configure manual signing with the actual installed profile UUID
         shell: bash
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
@@ -118,7 +137,10 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>method</key><string>app-store-connect</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict><key>${BUNDLE_ID}</key><string>${PROFILE_UUID}</string></dict>
             <key>teamID</key><string>${APPLE_TEAM_ID}</string>
             <key>destination</key><string>export</string>
             <key>uploadSymbols</key><true/>
